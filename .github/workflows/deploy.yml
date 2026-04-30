@@ -1,4 +1,4 @@
-name: Deploy task-1 to GitHub Pages
+name: Deploy tasks to GitHub Pages
 
 on:
   push:
@@ -14,10 +14,6 @@ concurrency:
   group: pages
   cancel-in-progress: true
 
-defaults:
-  run:
-    working-directory: task-1
-
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -29,14 +25,54 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-          cache: 'npm'
-          cache-dependency-path: task-1/package-lock.json
 
-      - name: Install dependencies
-        run: npm ci
+      - name: Build all tasks
+        shell: bash
+        run: |
+          set -e
+          mkdir -p _site
+          built=()
+          for dir in task-*/; do
+            task="${dir%/}"
+            if [ -f "$dir/package.json" ]; then
+              echo "::group::Build $task"
+              pushd "$dir" > /dev/null
+              if [ -f package-lock.json ]; then
+                npm ci
+              else
+                npm install
+              fi
+              npm run build
+              popd > /dev/null
+              if [ -d "$dir/dist" ]; then
+                mkdir -p "_site/$task"
+                cp -r "$dir/dist/." "_site/$task/"
+                built+=("$task")
+              fi
+              echo "::endgroup::"
+            else
+              echo "Skipping $task (no package.json)"
+            fi
+          done
+          echo "BUILT_TASKS=${built[*]}" >> $GITHUB_ENV
 
-      - name: Build
-        run: npm run build
+      - name: Generate root index
+        shell: bash
+        run: |
+          {
+            echo '<!doctype html>'
+            echo '<html lang="en"><head><meta charset="utf-8">'
+            echo '<meta name="viewport" content="width=device-width,initial-scale=1">'
+            echo '<title>Vention AI Challenge 2</title>'
+            echo '<style>body{font-family:system-ui,sans-serif;max-width:640px;margin:48px auto;padding:0 16px;color:#0f172a}h1{font-size:28px}ul{padding-left:20px;line-height:1.9}a{color:#0284c7;text-decoration:none}a:hover{text-decoration:underline}</style>'
+            echo '</head><body>'
+            echo '<h1>Vention AI Challenge 2</h1>'
+            echo '<ul>'
+            for task in $BUILT_TASKS; do
+              echo "<li><a href=\"./$task/\">$task</a></li>"
+            done
+            echo '</ul></body></html>'
+          } > _site/index.html
 
       - name: Configure Pages
         uses: actions/configure-pages@v5
@@ -44,7 +80,7 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: task-1/dist
+          path: _site
 
   deploy:
     needs: build
